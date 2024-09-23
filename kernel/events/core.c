@@ -4105,6 +4105,32 @@ struct merge_sched_data {
 	enum event_type_t event_type;
 };
 
+static bool
+perf_mediated_pmu_skip_event(struct perf_event *event, enum event_type_t event_type)
+{
+	if (event->pmu_ctx->pmu->capabilities & PERF_PMU_CAP_PMU_PARTITION) {
+		/*
+		 * EVENT_GUEST && !guest_ctx_loaded: perf_load_guest_context()
+		 * reschedules !exclude_guest events.
+		 *
+		 * !EVENT_GUEST && guest_ctx_loaded: Guest context loaded.
+		 */
+		if (event->attr.exclude_guest &&
+		    !!(event_type & EVENT_GUEST) != is_guest_mediated_pmu_loaded())
+			return true;
+	} else {
+		/*
+		 * Don't schedule in any host events because no counters
+		 * are available.
+		 */
+		if (!(event_type & EVENT_GUEST) &&
+		    is_guest_mediated_pmu_loaded())
+			return true;
+	}
+
+	return false;
+}
+
 static int merge_sched_in(struct perf_event *event, void *data)
 {
 	struct perf_event_context *ctx = event->ctx;
@@ -4116,13 +4142,8 @@ static int merge_sched_in(struct perf_event *event, void *data)
 	if (!event_filter_match(event))
 		return 0;
 
-	/*
-	 * Don't schedule in any host events from PMU with
-	 * PERF_PMU_CAP_MEDIATED_VPMU, while a guest is running.
-	 */
-	if (is_guest_mediated_pmu_loaded() &&
-	    event->pmu_ctx->pmu->capabilities & PERF_PMU_CAP_MEDIATED_VPMU &&
-	    !(msd->event_type & EVENT_GUEST))
+	if ((event->pmu_ctx->pmu->capabilities & PERF_PMU_CAP_MEDIATED_VPMU) &&
+	    perf_mediated_pmu_skip_event(event, msd->event_type))
 		return 0;
 
 	if (group_can_go_on(event, msd->can_add_hw)) {

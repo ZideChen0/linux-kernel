@@ -6442,8 +6442,25 @@ void perf_release_mediated_pmu(void)
 }
 EXPORT_SYMBOL_FOR_KVM(perf_release_mediated_pmu);
 
-/* When loading a guest's mediated PMU, schedule out all exclude_guest events. */
-void perf_load_guest_context(void)
+static void cpuctx_sched_in_all(struct perf_cpu_context *cpuctx,
+				enum event_type_t type)
+{
+	struct perf_event_pmu_context *pmu_ctx;
+
+	for_each_epc(pmu_ctx, &cpuctx->ctx, NULL, EVENT_GUEST)
+		__pmu_ctx_sched_in(pmu_ctx, type | EVENT_GUEST);
+
+	if (cpuctx->task_ctx) {
+		for_each_epc(pmu_ctx, cpuctx->task_ctx, NULL, EVENT_GUEST)
+			__pmu_ctx_sched_in(pmu_ctx, type | EVENT_GUEST);
+	}
+}
+
+/*
+ * When loading a guest's mediated PMU, schedule out all exclude_guest events.
+ * In PMU partitioning, reschedule host events onto host-owned counters.
+ */
+void perf_load_guest_context(bool pmu_partition_enabled)
 {
 	struct perf_cpu_context *cpuctx = this_cpu_ptr(&perf_cpu_context);
 
@@ -6461,6 +6478,12 @@ void perf_load_guest_context(void)
 		task_ctx_sched_out(cpuctx->task_ctx, NULL, EVENT_GUEST);
 	}
 
+	/* Reschedule !exclude_guest events onto host-owned counters. */
+	if (pmu_partition_enabled) {
+		cpuctx_sched_in_all(cpuctx, EVENT_PINNED);
+		cpuctx_sched_in_all(cpuctx, EVENT_FLEXIBLE);
+	}
+
 	perf_ctx_enable(&cpuctx->ctx, EVENT_GUEST);
 	if (cpuctx->task_ctx)
 		perf_ctx_enable(cpuctx->task_ctx, EVENT_GUEST);
@@ -6469,7 +6492,21 @@ void perf_load_guest_context(void)
 }
 EXPORT_SYMBOL_GPL(perf_load_guest_context);
 
-void perf_put_guest_context(void)
+static void ctx_sched_out_all(struct perf_event_context *ctx)
+{
+	struct perf_event_pmu_context *pmu_ctx;
+
+	if (!ctx)
+		return;
+
+	list_for_each_entry(pmu_ctx, &ctx->pmu_ctx_list, pmu_ctx_entry) {
+		if (perf_skip_pmu_ctx(pmu_ctx, EVENT_GUEST))
+			continue;
+		__pmu_ctx_sched_out(pmu_ctx, EVENT_ALL);
+	}
+}
+
+void perf_put_guest_context(bool pmu_partition_enabled)
 {
 	struct perf_cpu_context *cpuctx = this_cpu_ptr(&perf_cpu_context);
 
@@ -6483,6 +6520,15 @@ void perf_put_guest_context(void)
 	perf_ctx_disable(&cpuctx->ctx, EVENT_GUEST);
 	if (cpuctx->task_ctx)
 		perf_ctx_disable(cpuctx->task_ctx, EVENT_GUEST);
+
+	if (pmu_partition_enabled) {
+		ctx_time_update(cpuctx, &cpuctx->ctx);
+		if (cpuctx->task_ctx)
+			ctx_time_update(cpuctx, cpuctx->task_ctx);
+
+		ctx_sched_out_all(&cpuctx->ctx);
+		ctx_sched_out_all(cpuctx->task_ctx);
+	}
 
 	perf_event_sched_in(cpuctx, cpuctx->task_ctx, NULL, EVENT_GUEST);
 

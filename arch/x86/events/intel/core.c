@@ -7905,7 +7905,7 @@ __init int intel_pmu_init(void)
 		x86_pmu = intel_pmu;
 
 	x86_pmu.version			= version;
-	x86_pmu.cntr_mask64		= GENMASK_ULL(eax.split.num_counters - 1, 0);
+	x86_pmu.cntr_mask64		= BIT_ULL(eax.split.num_counters) - 1;
 	x86_pmu.cntval_bits		= eax.split.bit_width;
 	x86_pmu.cntval_mask		= (1ULL << eax.split.bit_width) - 1;
 
@@ -7924,7 +7924,7 @@ __init int intel_pmu_init(void)
 		int assume = 3 * !boot_cpu_has(X86_FEATURE_HYPERVISOR);
 
 		x86_pmu.fixed_cntr_mask64 =
-			GENMASK_ULL(max((int)edx.split.num_counters_fixed, assume) - 1, 0);
+			BIT_ULL(max((int)edx.split.num_counters_fixed, assume)) - 1;
 	} else if (version >= 5)
 		x86_pmu.fixed_cntr_mask64 = fixed_mask;
 

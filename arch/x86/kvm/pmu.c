@@ -808,9 +808,16 @@ static bool kvm_need_any_pmc_intercept(struct kvm_vcpu *vcpu)
 	       kvm_fixed_pmc_mask(pmu) != kvm_host_pmu.fixed_cntr_mask64;
 }
 
+static bool kvm_need_perf_metrics_intercept(struct kvm_vcpu *vcpu)
+{
+	return (kvm_host.perf_capabilities & PERF_CAP_PERF_METRICS) &&
+		!kvm_vcpu_has_perf_metrics(vcpu);
+}
+
 bool kvm_need_perf_global_ctrl_intercept(struct kvm_vcpu *vcpu)
 {
 	return kvm_need_any_pmc_intercept(vcpu) ||
+	       kvm_need_perf_metrics_intercept(vcpu) ||
 	       !kvm_pmu_has_perf_global_ctrl(vcpu_to_pmu(vcpu));
 }
 EXPORT_SYMBOL_FOR_KVM_INTERNAL(kvm_need_perf_global_ctrl_intercept);

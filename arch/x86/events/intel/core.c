@@ -2814,6 +2814,13 @@ static void __intel_pmu_enable_all(int added, bool pmi)
 
 	if (!x86_pmu_partition_loaded(cpuc))
 	       intel_ctrl &= ~cpuc->intel_ctrl_guest_mask;
+	else if (pmi)
+		/*
+		 * Guest-owned bits are excluded here, not because of clobbering
+		 * global ctrl guest bits in non-root mode, but because guest
+		 * counter MSRs have not yet been saved by KVM in NMI context.
+		 */
+		intel_ctrl &= ~x86_pmu_current_partition_mask();
 
 	wrmsrq(MSR_CORE_PERF_GLOBAL_CTRL, intel_ctrl);
 
@@ -4448,6 +4455,31 @@ dyn_constraint(struct cpu_hw_events *cpuc, struct event_constraint *c, int idx)
 	return c;
 }
 
+/*
+ * Mask out guest-owned counters from a constraint when PMU partition has been
+ * entered, so !exclude_guest host events are not scheduled onto them while
+ * the CPU is in non-root mode.
+ */
+static struct event_constraint *
+part_constraint(struct cpu_hw_events *cpuc, int idx,
+		struct perf_event *event, struct event_constraint *c)
+{
+	/*
+	 * Skip &emptyconstraint: dyn_constraint() would clone it, breaking
+	 * the "c == &emptyconstraint" pointer checks callers rely on.
+	 */
+	if (!c->weight || c == &emptyconstraint)
+		return c;
+
+	if (x86_pmu_partition_loaded(cpuc)) {
+		c = dyn_constraint(cpuc, c, idx);
+		c->idxmsk64 &= ~x86_pmu_current_partition_mask();
+		c->weight = hweight64(c->idxmsk64);
+	}
+
+	return c;
+}
+
 static struct event_constraint *
 intel_get_excl_constraints(struct cpu_hw_events *cpuc, struct perf_event *event,
 			   int idx, struct event_constraint *c)
@@ -4569,8 +4601,14 @@ intel_get_event_constraints(struct cpu_hw_events *cpuc, int idx,
 		c2 = c1;
 	}
 
-	if (cpuc->excl_cntrs)
+	/*
+	 * No platform supports both PMU_FL_EXCL_CNTRS and PerfMon masking
+	 * simultaneously, so part_constraint() is not needed on this path.
+	 */
+	if (cpuc->excl_cntrs) {
+		WARN_ON_ONCE(x86_pmu_partition_loaded(cpuc));
 		return intel_get_excl_constraints(cpuc, event, idx, c2);
+	}
 
 	if (event->hw.dyn_constraint != ~0ULL) {
 		c2 = dyn_constraint(cpuc, c2, idx);
@@ -4578,7 +4616,7 @@ intel_get_event_constraints(struct cpu_hw_events *cpuc, int idx,
 		c2->weight = hweight64(c2->idxmsk64);
 	}
 
-	return c2;
+	return part_constraint(cpuc, idx, event, c2);
 }
 
 static void intel_put_excl_constraints(struct cpu_hw_events *cpuc,
@@ -5948,7 +5986,8 @@ int intel_cpuc_prepare(struct cpu_hw_events *cpuc, int cpu)
 			goto err;
 	}
 
-	if (x86_pmu.flags & (PMU_FL_EXCL_CNTRS | PMU_FL_TFA | PMU_FL_DYN_CONSTRAINT)) {
+	if (x86_pmu.flags & (PMU_FL_EXCL_CNTRS | PMU_FL_TFA | PMU_FL_DYN_CONSTRAINT) ||
+	    (x86_get_pmu(cpu)->capabilities & PERF_PMU_CAP_MEDIATED_VPMU)) {
 		size_t sz = X86_PMC_IDX_MAX * sizeof(struct event_constraint);
 
 		cpuc->constraint_list = kzalloc_node(sz, GFP_KERNEL, cpu_to_node(cpu));

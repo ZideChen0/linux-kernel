@@ -4455,10 +4455,40 @@ dyn_constraint(struct cpu_hw_events *cpuc, struct event_constraint *c, int idx)
 	return c;
 }
 
+static bool event_uses_guest_owned_facility(struct perf_event *event)
+{
+	/*
+	 * For Intel platforms, PMU partition mask shares the same bit layout
+	 * as IA32_PERF_GLOBAL_STATUS.
+	 */
+	u64 partition_mask = x86_pmu_current_partition_mask();
+
+	if ((partition_mask & GLOBAL_STATUS_PERF_METRICS_OVF) &&
+	    is_topdown_event(event))
+		return true;
+
+	if ((partition_mask & GLOBAL_STATUS_LBRS_FROZEN) &&
+	    needs_branch_stack(event))
+		return true;
+
+	if (partition_mask &
+	    (GLOBAL_STATUS_BUFFER_OVF | GLOBAL_STATUS_ARCH_PEBS_THRESHOLD)) {
+		if (event->attr.precise_ip || is_pebs_counter_event_group(event))
+			return true;
+
+		if ((partition_mask & GLOBAL_STATUS_BUFFER_OVF) &&
+		    intel_pmu_has_bts(event))
+			return true;
+	}
+
+	return false;
+}
+
 /*
  * Mask out guest-owned counters from a constraint when PMU partition has been
  * entered, so !exclude_guest host events are not scheduled onto them while
- * the CPU is in non-root mode.
+ * the CPU is in non-root mode. Reject the event when a guest is currently
+ * loaded and it needs a guest-owned exclusive facility.
  *
  * This is also used by PMU-specific get_event_constraints() wrappers
  * that hard-code a static, counter-specific constraint.
@@ -4475,6 +4505,9 @@ part_constraint(struct cpu_hw_events *cpuc, int idx,
 		return c;
 
 	if (x86_pmu_partition_loaded(cpuc)) {
+		if (event_uses_guest_owned_facility(event))
+			return &emptyconstraint;
+
 		c = dyn_constraint(cpuc, c, idx);
 		c->idxmsk64 &= ~x86_pmu_current_partition_mask();
 		c->weight = hweight64(c->idxmsk64);

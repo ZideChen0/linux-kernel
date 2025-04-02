@@ -6381,11 +6381,23 @@ static int mediated_pmu_account_event(struct perf_event *event)
 	if (!is_include_guest_event(event))
 		return 0;
 
+	/*
+	 * This lockless fast path assumes that heterogeneous mediated vPMUs
+	 * are not supported, i.e. a mix of PERF_PMU_CAP_MEDIATED_VPMU PMUs
+	 * with and without PERF_PMU_CAP_PMU_PARTITION.
+	 */
 	if (atomic_inc_not_zero(&nr_include_guest_events))
 		return 0;
 
 	guard(mutex)(&perf_mediated_pmu_mutex);
-	if (atomic_read(&nr_mediated_pmu_vms))
+
+	/*
+	 * PMU partitioning allows scheduling !exclude_guest events while a
+	 * guest is running. However, it is up to the PMU driver to validate
+	 * whether the facilities needed by the event are available on the host.
+	 */
+	if (atomic_read(&nr_mediated_pmu_vms) &&
+	    !(event->pmu->capabilities & PERF_PMU_CAP_PMU_PARTITION))
 		return -EOPNOTSUPP;
 
 	atomic_inc(&nr_include_guest_events);
@@ -6418,7 +6430,7 @@ int perf_create_mediated_pmu(u64 partition_mask)
 	int ret;
 
 	guard(mutex)(&perf_mediated_pmu_mutex);
-	if (atomic_read(&nr_include_guest_events))
+	if (atomic_read(&nr_include_guest_events) && !partition_mask)
 		return -EBUSY;
 
 	ret = arch_perf_set_pmu_partition_mask(partition_mask);

@@ -482,6 +482,12 @@ static int intel_pmu_set_msr(struct kvm_vcpu *vcpu, struct msr_data *msr_info)
 			if (data & eventsel_rsvd)
 				return 1;
 
+			/*
+			 * AnyThread bit is set only if the guest enumerates
+			 * ANYTHREAD_DEPRECATION, in which case KVM accepts but
+			 * silently discards writes to it.
+			 */
+			data &= ~ARCH_PERFMON_EVENTSEL_ANY;
 			if (data != pmc->eventsel) {
 				pmc->eventsel = data;
 				pmc->eventsel_hw = data;
@@ -598,6 +604,15 @@ static void intel_pmu_refresh(struct kvm_vcpu *vcpu)
 	nr_gp_counters = min_t(int, eax.split.num_counters, X86_PMC_IDX_MAX - 1);
 	pmu->pmc_exists64 = (BIT_ULL(nr_gp_counters) - 1) &
 			    kvm_pmu_cap.cntr_mask64;
+
+	/*
+	 * AnyThread counting is not supported by KVM due to cross-VM
+	 * information leakage concerns on SMT cores. Therefore, AnyThread
+	 * remains unavailable for PerfMon v3/v4 guests, where AnyThread
+	 * deprecation is not enumerated.
+	 */
+	if (pmu->version >= 5 && edx.split.anythread_deprecated)
+		pmu->eventsel_rsvd &= ~ARCH_PERFMON_EVENTSEL_ANY;
 
 	entry = kvm_find_cpuid_entry_index(vcpu, 7, 0);
 	if (entry &&

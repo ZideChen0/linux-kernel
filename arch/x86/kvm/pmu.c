@@ -809,6 +809,14 @@ static bool kvm_need_any_pmc_intercept(struct kvm_vcpu *vcpu)
 		return true;
 
 	/*
+	 * When PerfMon mask is enabled, KVM need not intercept RDPMC or
+	 * accesses to IA32_PERF_GLOBAL_CTRL, as hardware blocks or filters
+	 * out access to non-guest-owned RDPMC indices or GLOBAL_CTRL bits.
+	 */
+	if (kvm_vcpu_has_perfmon_mask(vcpu))
+		return false;
+
+	/*
 	 * Note!  Check *host* PMU capabilities, not KVM's PMU capabilities, as
 	 * KVM's capabilities are constrained based on KVM support, i.e. KVM's
 	 * capabilities themselves may be a subset of hardware capabilities.

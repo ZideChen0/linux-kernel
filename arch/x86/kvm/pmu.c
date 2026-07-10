@@ -1112,7 +1112,7 @@ void kvm_pmu_destroy(struct kvm_vcpu *vcpu)
 	kvm_pmu_reset(vcpu);
 }
 
-static bool pmc_is_pmi_enabled(struct kvm_pmc *pmc)
+bool pmc_is_pmi_enabled(struct kvm_pmc *pmc)
 {
 	u8 fixed_ctr_ctrl;
 
@@ -1123,6 +1123,7 @@ static bool pmc_is_pmi_enabled(struct kvm_pmc *pmc)
 					  pmc->idx - KVM_FIXED_PMC_BASE_IDX);
 	return fixed_ctr_ctrl & INTEL_FIXED_0_ENABLE_PMI;
 }
+EXPORT_SYMBOL_FOR_KVM_INTERNAL(pmc_is_pmi_enabled);
 
 static void kvm_pmu_incr_counter(struct kvm_pmc *pmc)
 {

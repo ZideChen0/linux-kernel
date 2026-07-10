@@ -985,6 +985,46 @@ static void intel_mediated_pmu_load(struct kvm_vcpu *vcpu, u64 host_global_ctrl)
 	       pmu->fixed_ctr_ctrl_hw | intel_fixed_ctrl_host_bits(pmu));
 }
 
+static void intel_perfmon_mask_request_pmi(struct kvm_vcpu *vcpu)
+{
+	struct kvm_pmu *pmu = vcpu_to_pmu(vcpu);
+	struct kvm_pmc *pmc;
+	int i;
+
+	if (!kvm_vcpu_has_perfmon_mask(vcpu) || !pmu->global_status)
+		return;
+
+	/*
+	 * pmu->global_status should never carry a bit that isn't
+	 * guest-owned per pmu->perfmon_mask; such a bit would mean a
+	 * host-owned resource is being (mis)reported to the guest.
+	 */
+	WARN_ON_ONCE(pmu->global_status & ~pmu->perfmon_mask);
+
+	/*
+	 * Bit 48 is currently the only miscellaneous status bit (63:48) that
+	 * can be guest-owned; it indicates that a PMI is triggered, regardless
+	 * of fixed counter 3's PMI-enable state.
+	 */
+	if (pmu->global_status & GLOBAL_STATUS_PERF_METRICS_OVF) {
+		kvm_make_request(KVM_REQ_PMI, vcpu);
+		return;
+	}
+
+	/*
+	 * Match bare-metal behavior for counter bits (47:0): request a guest
+	 * PMI if any overflowed counter actually has its PMI-enable bit set.
+	 */
+	for_each_set_bit(i, (unsigned long *)&pmu->global_status,
+			 GLOBAL_STATUS_PERF_METRICS_OVF_BIT) {
+		pmc = kvm_pmc_idx_to_pmc(pmu, i);
+		if (pmc && pmc_is_pmi_enabled(pmc)) {
+			kvm_make_request(KVM_REQ_PMI, vcpu);
+			break;
+		}
+	}
+}
+
 static void intel_mediated_pmu_put(struct kvm_vcpu *vcpu)
 {
 	struct kvm_pmu *pmu = vcpu_to_pmu(vcpu);
@@ -1029,6 +1069,8 @@ static void intel_mediated_pmu_put(struct kvm_vcpu *vcpu)
 		if (pmu->perf_metrics)
 			wrmsrq(MSR_PERF_METRICS, 0);
 	}
+
+	intel_perfmon_mask_request_pmi(vcpu);
 }
 
 static bool intel_pmu_validate_perfmon_mask(void)

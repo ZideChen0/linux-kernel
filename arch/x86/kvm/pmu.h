@@ -336,6 +336,7 @@ static inline bool kvm_vcpu_has_perf_metrics(struct kvm_vcpu *vcpu)
 	return kvm_vcpu_get_perf_caps(vcpu) & PERF_CAP_PERF_METRICS;
 }
 
+bool pmc_is_pmi_enabled(struct kvm_pmc *pmc);
 void kvm_pmu_deliver_pmi(struct kvm_vcpu *vcpu);
 int kvm_pmu_rdpmc(struct kvm_vcpu *vcpu, unsigned pmc, u64 *data);
 int kvm_pmu_check_rdpmc_early(struct kvm_vcpu *vcpu, unsigned int idx);

@@ -2774,15 +2774,41 @@ static __always_inline void intel_pmu_disable_all(void)
 	intel_pmu_lbr_disable_all();
 }
 
+static inline u64 intel_pmu_guest_fixed_ctrl_mask(void)
+{
+	u64 partition_mask = x86_pmu_current_partition_mask();
+	int i = INTEL_PMC_IDX_FIXED;
+	u64 mask = 0;
+
+	for_each_set_bit_from(i, (unsigned long *)&partition_mask,
+			      INTEL_PMC_IDX_FIXED + INTEL_PMC_MAX_FIXED) {
+		mask |= intel_fixed_bits_by_idx(i - INTEL_PMC_IDX_FIXED,
+						INTEL_FIXED_BITS_MASK);
+	}
+
+	return mask;
+}
+
 static void __intel_pmu_enable_all(int added, bool pmi)
 {
 	struct cpu_hw_events *cpuc = this_cpu_ptr(&cpu_hw_events);
 	u64 intel_ctrl = hybrid(cpuc->pmu, intel_ctrl);
+	u64 guest_mask, fixed_ctrl;
 
 	intel_pmu_lbr_enable_all(pmi);
 
 	if (cpuc->fixed_ctrl_val != cpuc->active_fixed_ctrl_val) {
-		wrmsrq(MSR_ARCH_PERFMON_FIXED_CTR_CTRL, cpuc->fixed_ctrl_val);
+		if (x86_pmu_partition_nmi_active() && pmi) {
+			guest_mask = intel_pmu_guest_fixed_ctrl_mask();
+
+			rdmsrq(MSR_ARCH_PERFMON_FIXED_CTR_CTRL, fixed_ctrl);
+			fixed_ctrl = (fixed_ctrl & guest_mask) |
+				     (cpuc->fixed_ctrl_val & ~guest_mask);
+		} else {
+			fixed_ctrl = cpuc->fixed_ctrl_val;
+		}
+
+		wrmsrq(MSR_ARCH_PERFMON_FIXED_CTR_CTRL, fixed_ctrl);
 		cpuc->active_fixed_ctrl_val = cpuc->fixed_ctrl_val;
 	}
 
@@ -3700,22 +3726,30 @@ static void intel_pmu_reset(void)
 	struct cpu_hw_events *cpuc = this_cpu_ptr(&cpu_hw_events);
 	unsigned long *cntr_mask = hybrid(cpuc->pmu, cntr_mask);
 	unsigned long *fixed_cntr_mask = hybrid(cpuc->pmu, fixed_cntr_mask);
+	u64 guest_owned_mask = 0;
 	unsigned long flags;
 	int idx;
 
 	if (!*(u64 *)cntr_mask)
 		return;
 
+	if (x86_pmu_partition_nmi_active())
+		guest_owned_mask = x86_pmu_current_partition_mask();
+
 	local_irq_save(flags);
 
 	pr_info("clearing PMU state on CPU#%d\n", smp_processor_id());
 
 	for_each_set_bit(idx, cntr_mask, INTEL_PMC_MAX_GENERIC) {
+		if (BIT_ULL(idx) & guest_owned_mask)
+			continue;
 		wrmsrq_safe(x86_pmu_config_addr(idx), 0ull);
 		wrmsrq_safe(x86_pmu_event_addr(idx),  0ull);
 	}
 	for_each_set_bit(idx, fixed_cntr_mask, INTEL_PMC_MAX_FIXED) {
 		if (fixed_counter_disabled(idx, cpuc->pmu))
+			continue;
+		if (BIT_ULL(INTEL_PMC_IDX_FIXED + idx) & guest_owned_mask)
 			continue;
 		wrmsrq_safe(x86_pmu_fixed_ctr_addr(idx), 0ull);
 	}
@@ -3730,7 +3764,7 @@ static void intel_pmu_reset(void)
 	}
 
 	/* Reset LBRs and LBR freezing */
-	if (x86_pmu.lbr_nr) {
+	if (x86_pmu.lbr_nr && !(guest_owned_mask & GLOBAL_STATUS_LBRS_FROZEN)) {
 		update_debugctlmsr(get_debugctlmsr() &
 			~(DEBUGCTLMSR_FREEZE_LBRS_ON_PMI|DEBUGCTLMSR_LBR));
 	}
@@ -3944,10 +3978,21 @@ static int intel_pmu_handle_irq(struct pt_regs *regs)
 	struct cpu_hw_events *cpuc = this_cpu_ptr(&cpu_hw_events);
 	bool late_ack = hybrid_bit(cpuc->pmu, late_ack);
 	bool mid_ack = hybrid_bit(cpuc->pmu, mid_ack);
+	u64 guest_owned_mask = 0;
 	int loops;
 	u64 status;
 	int handled;
 	int pmu_enabled;
+
+	/*
+	 * When PMU partitioning is enabled, PMIs fired in non-root mode could
+	 * be either host- or guest-induced.
+	 *
+	 * The host won't clear guest-owned bits from IA32_PERF_GLOBAL_STATUS,
+	 * and leaves them for KVM to inject into the guest.
+	 */
+	if (x86_pmu_partition_nmi_active())
+		guest_owned_mask = x86_pmu_current_partition_mask();
 
 	/*
 	 * Save the PMU state.
@@ -3970,6 +4015,8 @@ static int intel_pmu_handle_irq(struct pt_regs *regs)
 	handled = intel_pmu_drain_bts_buffer();
 	handled += intel_bts_interrupt();
 	status = intel_pmu_get_status();
+	handled += hweight64(status & guest_owned_mask);
+	status &= ~guest_owned_mask;
 	if (!status)
 		goto done;
 
@@ -3995,6 +4042,13 @@ again:
 	 * Repeat if there is more work to be done:
 	 */
 	status = intel_pmu_get_status();
+
+	/*
+	 * Guest-owned bits were already counted into "handled" on the
+	 * initial read and are never acked, so no hweight64() is needed
+	 * here; just mask them out to avoid an infinite "goto again" loop.
+	 */
+	status &= ~guest_owned_mask;
 	if (status)
 		goto again;
 

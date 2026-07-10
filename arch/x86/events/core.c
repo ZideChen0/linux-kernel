@@ -1805,6 +1805,19 @@ bool pmu_partition_configured(void)
 	return READ_ONCE(x86_pmu.partition_mask) != 0;
 }
 
+bool x86_pmu_partition_nmi_active(void)
+{
+	enum guest_pmu_mode state = this_cpu_read(guest_pmu_state);
+
+	return pmu_partition_configured() &&
+	       state == GUEST_PMU_PARTITION_NMI;
+}
+
+u64 x86_pmu_current_partition_mask(void)
+{
+	return this_cpu_ptr(&cpu_hw_events)->partition_mask;
+}
+
 #ifdef CONFIG_PERF_GUEST_MEDIATED_PMU
 /*
  * Mark this CPU as running a PMU partitioned guest. Guest PMU partition
@@ -1887,8 +1900,12 @@ perf_event_nmi_handler(unsigned int cmd, struct pt_regs *regs)
 	/*
 	 * All PMUs/events that share this PMI handler should make sure to
 	 * increment active_events for their events.
+	 *
+	 * If PMU partitioning is enabled, guest-induced PMIs need to be marked
+	 * as handled to avoid unknown NMI warnings.
 	 */
-	if (!atomic_read(&active_events))
+	if (!atomic_read(&active_events) &&
+	    !x86_pmu_partition_nmi_active())
 		return NMI_DONE;
 
 	start_clock = sched_clock();

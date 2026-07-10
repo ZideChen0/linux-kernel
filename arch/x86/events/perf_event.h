@@ -301,6 +301,12 @@ struct cpu_hw_events {
 	int			is_fake;
 
 	/*
+	 * The PMU resources owned by the vCPU currently scheduled on this
+	 * CPU, which is a subset of x86_pmu.partition_mask.
+	 */
+	u64			partition_mask;
+
+	/*
 	 * Intel DebugStore bits
 	 */
 	struct debug_store	*ds;
@@ -1603,6 +1609,8 @@ static inline int is_pebs_pt(struct perf_event *event)
 }
 
 bool pmu_partition_configured(void);
+bool x86_pmu_partition_nmi_active(void);
+u64 x86_pmu_current_partition_mask(void);
 
 #ifdef CONFIG_CPU_SUP_INTEL
 

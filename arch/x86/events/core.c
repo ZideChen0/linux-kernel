@@ -57,7 +57,38 @@ DEFINE_PER_CPU(struct cpu_hw_events, cpu_hw_events) = {
 	.pmu = &pmu,
 };
 
-static DEFINE_PER_CPU(bool, guest_lvtpc_loaded);
+/*
+ * GUEST_PMU_NONE - No guest mediated PMU context is loaded.
+ *
+ * GUEST_PMU_MEDIATED - LVTPC is routed to the dedicated mediated PMI vector
+ *	instead of NMI, so any PMI in this state can only be guest-induced.
+ *	This covers both the non-partitioned mediated vPMU model and the PMU
+ *	partitioning case where the host currently has no events scheduled on
+ *	this CPU (see perf_load_guest_lvtpc()).
+ *
+ * GUEST_PMU_PARTITION_PRELOAD - Entering PMU partitioning guest mode, the host
+ *	context is still loaded. PMU partitioning constraints must be applied
+ *	so that host events can be rescheduled onto host-owned counters.
+ *
+ * GUEST_PMU_PARTITION_NMI - PMU partitioning is enabled, host event
+ *	rescheduling is complete, and the host currently has events scheduled
+ *	on this CPU, so LVTPC is routed to NMI and shared between host- and
+ *	guest-owned counters: a PMI in this state may be host- or
+ *	guest-induced.
+ *
+ * _PARTITION_PRELOAD and _PARTITION_NMI are distinct because PMU
+ * partitioning constraints must be visible to the scheduler before host
+ * events are rescheduled, while PMU partition masking can be applied to PMI
+ * handling only after the rescheduling completes.
+ */
+enum guest_pmu_mode {
+	GUEST_PMU_NONE,
+	GUEST_PMU_MEDIATED,
+	GUEST_PMU_PARTITION_PRELOAD,
+	GUEST_PMU_PARTITION_NMI,
+};
+
+static DEFINE_PER_CPU(enum guest_pmu_mode, guest_pmu_state);
 
 DEFINE_STATIC_KEY_FALSE(rdpmc_never_available_key);
 DEFINE_STATIC_KEY_FALSE(rdpmc_always_available_key);
@@ -1769,21 +1800,63 @@ void perf_events_lapic_init(void)
 	apic_write(APIC_LVTPC, APIC_DM_NMI);
 }
 
+bool pmu_partition_configured(void)
+{
+	return READ_ONCE(x86_pmu.partition_mask) != 0;
+}
+
 #ifdef CONFIG_PERF_GUEST_MEDIATED_PMU
+/*
+ * Mark this CPU as running a PMU partitioned guest. Guest PMU partition
+ * constraints apply from this point, even if host PMU context remains loaded.
+ */
+void perf_pmu_partition_preload(void)
+{
+	if (pmu_partition_configured())
+		this_cpu_write(guest_pmu_state, GUEST_PMU_PARTITION_PRELOAD);
+}
+EXPORT_SYMBOL_FOR_KVM(perf_pmu_partition_preload);
+
 void perf_load_guest_lvtpc(u32 guest_lvtpc)
 {
-	u32 masked = guest_lvtpc & APIC_LVT_MASKED;
+	struct cpu_hw_events *cpuc = this_cpu_ptr(&cpu_hw_events);
+	bool is_pmu_partitioned = pmu_partition_configured();
+	bool use_nmi;
 
-	apic_write(APIC_LVTPC,
-		   APIC_DM_FIXED | PERF_GUEST_MEDIATED_PMI_VECTOR | masked);
-	this_cpu_write(guest_lvtpc_loaded, true);
+	if (is_pmu_partitioned)
+		WARN_ON_ONCE(this_cpu_read(guest_pmu_state) !=
+			     GUEST_PMU_PARTITION_PRELOAD);
+
+	/*
+	 * If the host has events scheduled on this CPU, a PMI could be host-
+	 * or guest-induced, so share NMI with the guest. Otherwise, route
+	 * LVTPC to the dedicated mediated PMI vector for better
+	 * performance and simpler handling.
+	 */
+	use_nmi = is_pmu_partitioned && cpuc->n_events;
+	if (!use_nmi)
+		apic_write(APIC_LVTPC, APIC_DM_FIXED |
+			   PERF_GUEST_MEDIATED_PMI_VECTOR |
+			   (guest_lvtpc & APIC_LVT_MASKED));
+
+	this_cpu_write(guest_pmu_state,
+		       use_nmi ? GUEST_PMU_PARTITION_NMI : GUEST_PMU_MEDIATED);
 }
 EXPORT_SYMBOL_FOR_KVM(perf_load_guest_lvtpc);
 
 void perf_put_guest_lvtpc(void)
 {
-	this_cpu_write(guest_lvtpc_loaded, false);
-	apic_write(APIC_LVTPC, APIC_DM_NMI);
+	enum guest_pmu_mode state = this_cpu_read(guest_pmu_state);
+
+	this_cpu_write(guest_pmu_state, GUEST_PMU_NONE);
+
+	/*
+	 * LVTPC needs restoring to NMI unless it's already routed there, i.e.
+	 * unless LVTPC was left routed to the dedicated mediated PMI vector
+	 * (see perf_load_guest_lvtpc()).
+	 */
+	if (state == GUEST_PMU_MEDIATED)
+		apic_write(APIC_LVTPC, APIC_DM_NMI);
 }
 EXPORT_SYMBOL_FOR_KVM(perf_put_guest_lvtpc);
 #endif /* CONFIG_PERF_GUEST_MEDIATED_PMU */
@@ -1802,8 +1875,13 @@ perf_event_nmi_handler(unsigned int cmd, struct pt_regs *regs)
 	 * loaded will generate false positives and clobber guest state.  Note,
 	 * the LVTPC is switched to/from the dedicated mediated PMI IRQ vector
 	 * while host events are quiesced.
+	 *
+	 * GUEST_PMU_PARTITION_NMI is intentionally excluded here: LVTPC stays
+	 * routed to NMI in that state, and an NMI there can be host- or
+	 * guest-induced. GUEST_PMU_PARTITION_PRELOAD is likewise excluded, as
+	 * PMU is still loaded with host context.
 	 */
-	if (this_cpu_read(guest_lvtpc_loaded))
+	if (this_cpu_read(guest_pmu_state) == GUEST_PMU_MEDIATED)
 		return NMI_DONE;
 
 	/*

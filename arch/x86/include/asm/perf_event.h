@@ -790,6 +790,7 @@ static inline void perf_check_microcode(void) { }
 #endif
 
 #ifdef CONFIG_PERF_GUEST_MEDIATED_PMU
+extern void perf_pmu_partition_preload(void);
 extern void perf_load_guest_lvtpc(u32 guest_lvtpc);
 extern void perf_put_guest_lvtpc(void);
 #endif

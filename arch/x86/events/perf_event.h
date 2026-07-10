@@ -1602,6 +1602,8 @@ static inline int is_pebs_pt(struct perf_event *event)
 	return !!(event->hw.flags & PERF_X86_EVENT_PEBS_VIA_PT);
 }
 
+bool pmu_partition_configured(void);
+
 #ifdef CONFIG_CPU_SUP_INTEL
 
 static inline bool intel_pmu_has_bts_period(struct perf_event *event, u64 period)

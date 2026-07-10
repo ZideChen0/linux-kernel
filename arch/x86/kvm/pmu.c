@@ -1388,6 +1388,8 @@ void kvm_mediated_pmu_load(struct kvm_vcpu *vcpu)
 
 	lockdep_assert_irqs_disabled();
 
+	perf_pmu_partition_preload();
+
 	perf_load_guest_context();
 
 	/*

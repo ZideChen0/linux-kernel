@@ -920,6 +920,33 @@ static void intel_pmu_write_global_ctrl(u64 global_ctrl)
 	vmcs_write64(GUEST_IA32_PERF_GLOBAL_CTRL, global_ctrl);
 }
 
+static u64 intel_fixed_ctrl_host_bits(struct kvm_pmu *pmu)
+{
+	unsigned long fixed_mask;
+	u64 fixed_ctl;
+	int i;
+
+	if (!kvm_vcpu_has_perfmon_mask(pmu_to_vcpu(pmu)))
+		return 0;
+
+	fixed_mask = kvm_fixed_pmc_mask(pmu);
+
+	rdmsrq(MSR_CORE_PERF_FIXED_CTR_CTRL, fixed_ctl);
+
+	/*
+	 * Use the full per-counter nibbles (bits 4n+3:4n and 4n+35:4n+32) to
+	 * strip all bits belonging to guest-owned counters.
+	 *
+	 * pmu->fixed_ctr_ctrl_rsvd can't be used here since it can't gate bits
+	 * that are not supported by KVM.
+	 */
+	kvm_for_each_fixed_counter(i, fixed_mask)
+		fixed_ctl &= ~intel_fixed_bits_by_idx(i, GENMASK_ULL(3, 0) |
+						      GENMASK_ULL(35, 32));
+
+	return fixed_ctl;
+}
+
 static void intel_mediated_pmu_load(struct kvm_vcpu *vcpu)
 {
 	struct kvm_pmu *pmu = vcpu_to_pmu(vcpu);
@@ -935,7 +962,8 @@ static void intel_mediated_pmu_load(struct kvm_vcpu *vcpu)
 	if (pmu->global_status & toggle)
 		wrmsrq(MSR_CORE_PERF_GLOBAL_STATUS_SET, pmu->global_status & toggle);
 
-	wrmsrq(MSR_CORE_PERF_FIXED_CTR_CTRL, pmu->fixed_ctr_ctrl_hw);
+	wrmsrq(MSR_CORE_PERF_FIXED_CTR_CTRL,
+	       pmu->fixed_ctr_ctrl_hw | intel_fixed_ctrl_host_bits(pmu));
 }
 
 static void intel_mediated_pmu_put(struct kvm_vcpu *vcpu)
@@ -953,9 +981,15 @@ static void intel_mediated_pmu_put(struct kvm_vcpu *vcpu)
 	 * Clear hardware FIXED_CTR_CTRL MSR to avoid information leakage and
 	 * also to avoid accidentally enabling fixed counters (based on guest
 	 * state) while running in the host, e.g. when setting global ctrl.
+	 *
+	 * Keep the host-owned counters unchanged.
 	 */
-	if (pmu->fixed_ctr_ctrl_hw)
-		wrmsrq(MSR_CORE_PERF_FIXED_CTR_CTRL, 0);
+	if (pmu->fixed_ctr_ctrl_hw) {
+		u64 fixed_ctl = intel_fixed_ctrl_host_bits(pmu);
+
+		fixed_ctl &= ~pmu->fixed_ctr_ctrl_hw;
+		wrmsrq(MSR_CORE_PERF_FIXED_CTR_CTRL, fixed_ctl);
+	}
 
 	if (kvm_vcpu_has_perf_metrics(vcpu)) {
 		pmu->perf_metrics = rdpmc(INTEL_PMC_FIXED_RDPMC_METRICS);

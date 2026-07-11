@@ -3284,6 +3284,36 @@ Kernel parameters
 			[KVM,Intel] Control nested virtualization feature in
 			KVM/VMX. Default is 1 (enabled).
 
+	kvm-intel.perfmon_mask=
+			[KVM,Intel] Defines the host-wide PMU resource
+			partition between guest and host. Resources assigned
+			to the guest are unavailable to the host, and vice
+			versa, while a guest is running.
+
+			The value is a semicolon-separated list of terms:
+
+			  guest_gp=<list>    General purpose counters
+					     (0-based) assigned to the guest.
+			  guest_fixed=<list> Fixed counters (0-based) assigned
+					     to the guest.
+			  perf_metrics       PERF_METRICS is assigned to the
+					     guest. Requires fixed counter 3
+					     to also be assigned to the
+					     guest.
+
+			<list> is a comma-separated list of numbers and/or
+			ranges, e.g. "0-2,5". Terms and the resources they
+			don't mention default to being host-owned. For
+			example:
+
+				kvm-intel.perfmon_mask=guest_gp=0-3;guest_fixed=0-1,3;perf_metrics
+
+			assigns general purpose counters 0-3, fixed counters
+			0, 1 and 3, and PERF_METRICS to the guest, while all
+			other resources remain with the host.
+
+			Default is "" (disabled).
+
 	kvm-intel.unrestricted_guest=
 			[KVM,Intel] Control KVM's use of unrestricted guest
 			feature (virtualized real and unpaged mode). Default

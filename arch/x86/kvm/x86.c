@@ -9328,7 +9328,7 @@ int kvm_arch_vcpu_precreate(struct kvm *kvm, unsigned int id)
 	if (enable_mediated_pmu && kvm->arch.enable_pmu &&
 	    !kvm->arch.created_mediated_pmu) {
 		if (irqchip_in_kernel(kvm)) {
-			r = perf_create_mediated_pmu(0);
+			r = perf_create_mediated_pmu(perfmon_mask);
 			if (r) {
 				pr_warn_ratelimited(PERF_MEDIATED_PMU_MSG);
 				return r;

@@ -43,6 +43,9 @@ module_param(enable_pmu, bool, 0444);
 bool __read_mostly enable_mediated_pmu;
 EXPORT_SYMBOL_FOR_KVM_INTERNAL(enable_mediated_pmu);
 
+u64 __read_mostly perfmon_mask;
+EXPORT_SYMBOL_FOR_KVM_INTERNAL(perfmon_mask);
+
 struct kvm_x86_pmu_event_filter {
 	__u32 action;
 	__u32 nevents;

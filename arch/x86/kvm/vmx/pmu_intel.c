@@ -955,6 +955,74 @@ static void intel_mediated_pmu_put(struct kvm_vcpu *vcpu)
 	}
 }
 
+static bool intel_pmu_validate_perfmon_mask(void)
+{
+	u64 guest_fixed_mask, guest_gp_mask;
+
+	/*
+	 * Combining VM-exit MSR-store with PerfMon masking produces
+	 * undefined behavior, so it requires hardware support for this
+	 * dedicated save control.
+	 */
+	if (!cpu_has_save_perf_global_ctrl())
+		return false;
+
+	guest_gp_mask = perfmon_mask & GENMASK_ULL(INTEL_PMC_MAX_GENERIC - 1, 0);
+	guest_fixed_mask = perfmon_mask >> INTEL_PMC_IDX_FIXED;
+	guest_fixed_mask &= GENMASK_ULL(INTEL_PMC_MAX_FIXED - 1, 0);
+
+	if ((guest_fixed_mask & ~kvm_pmu_cap.fixed_cntr_mask64) ||
+	    (guest_gp_mask & ~kvm_pmu_cap.cntr_mask64))
+		return false;
+
+	/*
+	 * Without KVM Arch PerfMon extension support, the guest cannot own
+	 * non-contiguous GP counters.
+	 */
+	if (guest_gp_mask & (guest_gp_mask + 1))
+		return false;
+
+	if ((perfmon_mask & GLOBAL_STATUS_PERF_METRICS_OVF) &&
+	    !(kvm_host.perf_capabilities & PERF_CAP_PERF_METRICS))
+		return false;
+
+	/*
+	 * PERF_METRICS and fixed counter 3 must both be host-owned or both
+	 * guest-owned.
+	 */
+	if (!!(perfmon_mask & BIT_ULL(GLOBAL_STATUS_PERF_METRICS_OVF_BIT)) !=
+	    !!(perfmon_mask & BIT_ULL(INTEL_PMC_IDX_FIXED + 3)))
+		return false;
+
+	/*
+	 * The guest must not own all PMU counters. Otherwise, the configuration
+	 * degenerates into plain mediated vPMU and adds unnecessary complexity
+	 * to the perf scheduler.
+	 */
+	if ((guest_fixed_mask == kvm_host_pmu.fixed_cntr_mask64) &&
+	    (guest_gp_mask == kvm_host_pmu.cntr_mask64))
+		return false;
+
+	return true;
+}
+
+void intel_pmu_perfmon_mask_setup(void)
+{
+	if (!perfmon_mask)
+		return;
+
+	if (!enable_mediated_pmu || !cpu_has_vmx_perfmon_mask()) {
+		perfmon_mask = 0;
+		return;
+	}
+
+	if (!intel_pmu_validate_perfmon_mask()) {
+		pr_warn("Invalid perfmon_mask=%#llx, disabling PerfMon masking\n",
+			perfmon_mask);
+		perfmon_mask = 0;
+	}
+}
+
 struct kvm_pmu_ops intel_pmu_ops __initdata = {
 	.emulate_rdpmc = intel_emulate_rdpmc,
 	.msr_idx_to_pmc = intel_msr_idx_to_pmc,

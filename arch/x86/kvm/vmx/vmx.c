@@ -14,6 +14,7 @@
  */
 #define pr_fmt(fmt) KBUILD_MODNAME ": " fmt
 
+#include <linux/bitmap.h>
 #include <linux/highmem.h>
 #include <linux/hrtimer.h>
 #include <linux/kernel.h>
@@ -25,6 +26,7 @@
 #include <linux/sched.h>
 #include <linux/sched/smt.h>
 #include <linux/slab.h>
+#include <linux/string.h>
 #include <linux/tboot.h>
 #include <linux/trace_events.h>
 
@@ -163,6 +165,56 @@ extern bool __read_mostly allow_smaller_maxphyaddr;
 module_param(allow_smaller_maxphyaddr, bool, S_IRUGO);
 
 module_param(enable_mediated_pmu, bool, 0444);
+
+/*
+ * See the "kvm-intel.perfmon_mask" entry in
+ * Documentation/admin-guide/kernel-parameters.txt for the full syntax.
+ * Example: kvm-intel.perfmon_mask=guest_gp=0-3;guest_fixed=0-1,3;perf_metrics
+ */
+static int perfmon_mask_set(const char *val, const struct kernel_param *kp)
+{
+	unsigned long gp_bitmap = 0, fixed_bitmap = 0;
+	char *buf, *orig, *tok;
+	size_t prefix_len;
+	u64 mask = 0;
+	int r = 0;
+
+	buf = orig = kstrdup(val, GFP_KERNEL);
+	if (!buf)
+		return -ENOMEM;
+
+	while ((tok = strsep(&buf, ";")) != NULL) {
+		if (!*tok)
+			continue;
+
+		if (!strcmp(tok, "perf_metrics")) {
+			mask |= GLOBAL_STATUS_PERF_METRICS_OVF;
+		} else if ((prefix_len = str_has_prefix(tok, "guest_gp="))) {
+			r = bitmap_parselist(tok + prefix_len, &gp_bitmap,
+					     INTEL_PMC_MAX_GENERIC);
+		} else if ((prefix_len = str_has_prefix(tok, "guest_fixed="))) {
+			r = bitmap_parselist(tok + prefix_len, &fixed_bitmap,
+					     INTEL_PMC_MAX_FIXED);
+		} else {
+			r = -EINVAL;
+		}
+
+		if (r)
+			goto out;
+	}
+
+	mask |= gp_bitmap | ((u64)fixed_bitmap << INTEL_PMC_IDX_FIXED);
+	*(u64 *)kp->arg = mask;
+out:
+	kfree(orig);
+	return r;
+}
+
+static const struct kernel_param_ops perfmon_mask_ops = {
+	.set = perfmon_mask_set,
+	.get = param_get_ullong,
+};
+module_param_cb(perfmon_mask, &perfmon_mask_ops, &perfmon_mask, 0444);
 
 #define KVM_VM_CR0_ALWAYS_OFF (X86_CR0_NW | X86_CR0_CD)
 #define KVM_VM_CR0_ALWAYS_ON_UNRESTRICTED_GUEST X86_CR0_NE
@@ -8823,6 +8875,8 @@ __init int vmx_hardware_setup(void)
 		vt_init_ops.handle_intel_pt_intr = vmx_handle_intel_pt_intr;
 	else
 		vt_init_ops.handle_intel_pt_intr = NULL;
+
+	intel_pmu_perfmon_mask_setup();
 
 	setup_default_sgx_lepubkeyhash();
 

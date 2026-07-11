@@ -64,6 +64,7 @@ struct kvm_pmu_ops {
 
 extern bool enable_pmu;
 extern bool enable_mediated_pmu;
+extern u64 perfmon_mask;
 
 void kvm_pmu_ops_update(const struct kvm_pmu_ops *pmu_ops);
 

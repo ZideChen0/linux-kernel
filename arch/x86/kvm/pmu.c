@@ -922,12 +922,15 @@ int kvm_pmu_set_msr(struct kvm_vcpu *vcpu, struct msr_data *msr_info)
 	struct kvm_pmu *pmu = vcpu_to_pmu(vcpu);
 	u32 msr = msr_info->index;
 	u64 data = msr_info->data;
-	u64 diff;
+	u64 global_status_rsvd, diff;
 
 	/*
 	 * Note, AMD ignores writes to reserved bits and read-only PMU MSRs,
 	 * whereas Intel generates #GP on attempts to write reserved/RO MSRs.
 	 */
+	global_status_rsvd = kvm_vcpu_has_perfmon_mask(vcpu) ?
+			     ~pmu->perfmon_mask : pmu->global_status_rsvd;
+
 	switch (msr) {
 	case MSR_CORE_PERF_GLOBAL_STATUS:
 		if (!msr_info->host_initiated)
@@ -938,7 +941,7 @@ int kvm_pmu_set_msr(struct kvm_vcpu *vcpu, struct msr_data *msr_info)
 		if (!msr_info->host_initiated)
 			break;
 
-		if (data & pmu->global_status_rsvd)
+		if (data & global_status_rsvd)
 			return 1;
 
 		pmu->global_status = data;
@@ -967,7 +970,7 @@ int kvm_pmu_set_msr(struct kvm_vcpu *vcpu, struct msr_data *msr_info)
 		 * GLOBAL_OVF_CTRL, a.k.a. GLOBAL STATUS_RESET, clears bits in
 		 * GLOBAL_STATUS, and so the set of reserved bits is the same.
 		 */
-		if (data & pmu->global_status_rsvd)
+		if (data & global_status_rsvd)
 			return 1;
 		fallthrough;
 	case MSR_AMD64_PERF_CNTR_GLOBAL_STATUS_CLR:
@@ -975,14 +978,14 @@ int kvm_pmu_set_msr(struct kvm_vcpu *vcpu, struct msr_data *msr_info)
 			pmu->global_status &= ~data;
 		break;
 	case MSR_CORE_PERF_GLOBAL_STATUS_SET:
-		if (data & pmu->global_status_rsvd)
+		if (data & global_status_rsvd)
 			return 1;
 		if (!msr_info->host_initiated)
 			pmu->global_status |= data;
 		break;
 	case MSR_AMD64_PERF_CNTR_GLOBAL_STATUS_SET:
 		if (!msr_info->host_initiated)
-			pmu->global_status |= data & ~pmu->global_status_rsvd;
+			pmu->global_status |= data & ~global_status_rsvd;
 		break;
 	default:
 		kvm_pmu_mark_pmc_in_use(vcpu, msr_info->index);

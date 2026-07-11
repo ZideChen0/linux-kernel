@@ -968,6 +968,14 @@ static void intel_mediated_pmu_load(struct kvm_vcpu *vcpu, u64 host_global_ctrl)
 
 	rdmsrq(MSR_CORE_PERF_GLOBAL_STATUS, global_status);
 	toggle = pmu->global_status ^ global_status;
+
+	/*
+	 * Restrict OVF_CTRL/STATUS_SET writes to guest-owned bits under
+	 * PerfMon masking.
+	 */
+	if (kvm_vcpu_has_perfmon_mask(vcpu))
+		toggle &= pmu->perfmon_mask;
+
 	if (global_status & toggle)
 		wrmsrq(MSR_CORE_PERF_GLOBAL_OVF_CTRL, global_status & toggle);
 	if (pmu->global_status & toggle)
@@ -984,7 +992,14 @@ static void intel_mediated_pmu_put(struct kvm_vcpu *vcpu)
 	/* MSR_CORE_PERF_GLOBAL_CTRL is already saved at VM-exit. */
 	rdmsrq(MSR_CORE_PERF_GLOBAL_STATUS, pmu->global_status);
 
-	/* Clear hardware MSR_CORE_PERF_GLOBAL_STATUS MSR, if non-zero. */
+	/*
+	 * Clear only the guest-owned bits from the hardware GLOBAL_STATUS
+	 * if any are set. pmu->global_status is then left holding just the
+	 * guest-owned subset.
+	 */
+	if (kvm_vcpu_has_perfmon_mask(vcpu))
+		pmu->global_status &= pmu->perfmon_mask;
+
 	if (pmu->global_status)
 		wrmsrq(MSR_CORE_PERF_GLOBAL_OVF_CTRL, pmu->global_status);
 

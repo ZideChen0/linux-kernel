@@ -7467,6 +7467,10 @@ static void vmx_refresh_guest_perf_global_control(struct kvm_vcpu *vcpu)
 	}
 
 	pmu->global_ctrl = vmcs_read64(GUEST_IA32_PERF_GLOBAL_CTRL);
+
+	/* Strip host-owned bits that were ORed into the VMCS on VMX entry. */
+	if (kvm_vcpu_has_perfmon_mask(vcpu))
+		pmu->global_ctrl &= ~pmu->global_ctrl_rsvd;
 }
 
 void noinstr vmx_update_host_rsp(struct vcpu_vmx *vmx, unsigned long host_rsp)

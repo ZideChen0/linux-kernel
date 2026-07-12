@@ -246,7 +246,7 @@ static bool amd_pmu_is_mediated_pmu_supported(struct x86_pmu_capability *host_pm
 	return host_pmu->version >= 2;
 }
 
-static void amd_mediated_pmu_load(struct kvm_vcpu *vcpu)
+static void amd_mediated_pmu_load(struct kvm_vcpu *vcpu, u64 host_global_ctrl)
 {
 	struct kvm_pmu *pmu = vcpu_to_pmu(vcpu);
 	u64 global_status;

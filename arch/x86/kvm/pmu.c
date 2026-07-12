@@ -1406,6 +1406,8 @@ static void kvm_pmu_load_guest_pmcs(struct kvm_vcpu *vcpu)
 
 void kvm_mediated_pmu_load(struct kvm_vcpu *vcpu)
 {
+	u64 host_global_ctrl = 0;
+
 	if (!kvm_vcpu_has_mediated_pmu(vcpu) ||
 	    KVM_BUG_ON(!lapic_in_kernel(vcpu), vcpu->kvm))
 		return;
@@ -1429,13 +1431,16 @@ void kvm_mediated_pmu_load(struct kvm_vcpu *vcpu)
 	 * even for SVM to minimize the damage if a perf event is left enabled,
 	 * and to ensure a consistent starting state.
 	 */
+	if (kvm_vcpu_has_perfmon_mask(vcpu))
+		rdmsrq(kvm_pmu_ops.PERF_GLOBAL_CTRL, host_global_ctrl);
+
 	wrmsrq(kvm_pmu_ops.PERF_GLOBAL_CTRL, 0);
 
 	perf_load_guest_lvtpc(kvm_lapic_get_reg(vcpu->arch.apic, APIC_LVTPC));
 
 	kvm_pmu_load_guest_pmcs(vcpu);
 
-	kvm_pmu_call(mediated_load)(vcpu);
+	kvm_pmu_call(mediated_load)(vcpu, host_global_ctrl);
 }
 
 static void kvm_pmu_put_guest_pmcs(struct kvm_vcpu *vcpu)

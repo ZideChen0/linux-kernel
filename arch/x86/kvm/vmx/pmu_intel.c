@@ -947,10 +947,21 @@ static u64 intel_fixed_ctrl_host_bits(struct kvm_pmu *pmu)
 	return fixed_ctl;
 }
 
-static void intel_mediated_pmu_load(struct kvm_vcpu *vcpu)
+static void intel_mediated_pmu_load(struct kvm_vcpu *vcpu, u64 host_global_ctrl)
 {
 	struct kvm_pmu *pmu = vcpu_to_pmu(vcpu);
 	u64 global_status, toggle;
+
+	/*
+	 * Preserve host-owned bits: perf may schedule !exclude_guest events on
+	 * host-owned counters in non-root mode.
+	 * PerfMon masking requires VM_EXIT_SAVE_IA32_PERF_GLOBAL_CTRL, so the
+	 * MSR-store/load path does not apply here.
+	 */
+	if (kvm_vcpu_has_perfmon_mask(vcpu)) {
+		host_global_ctrl &= pmu->global_ctrl_rsvd;
+		intel_pmu_write_global_ctrl(pmu->global_ctrl | host_global_ctrl);
+	}
 
 	if (kvm_vcpu_has_perf_metrics(vcpu))
 		wrmsrq(MSR_PERF_METRICS, pmu->perf_metrics);

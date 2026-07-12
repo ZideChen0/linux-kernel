@@ -39,7 +39,7 @@ struct kvm_pmu_ops {
 	bool (*pmc_is_disabled_in_current_mode)(struct kvm_pmc *pmc);
 
 	bool (*is_mediated_pmu_supported)(struct x86_pmu_capability *host_pmu);
-	void (*mediated_load)(struct kvm_vcpu *vcpu);
+	void (*mediated_load)(struct kvm_vcpu *vcpu, u64 host_global_ctrl);
 	void (*mediated_put)(struct kvm_vcpu *vcpu);
 	void (*write_global_ctrl)(u64 global_ctrl);
 

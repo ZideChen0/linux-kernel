@@ -4339,8 +4339,15 @@ static void vmx_recalc_pmu_msr_intercepts(struct kvm_vcpu *vcpu)
 				  MSR_TYPE_RW, intercept);
 	vmx_set_intercept_for_msr(vcpu, MSR_CORE_PERF_GLOBAL_STATUS_SET,
 				  MSR_TYPE_RW, intercept || pmu->version < 4);
+
+	/*
+	 * IA32_PERF_GLOBAL_INUSE reads are not subject to PerfMon mask
+	 * filtering.
+	 */
 	vmx_set_intercept_for_msr(vcpu, MSR_CORE_PERF_GLOBAL_INUSE,
-				  MSR_TYPE_RW, intercept || pmu->version < 4);
+				  MSR_TYPE_RW,
+				  intercept || kvm_vcpu_has_perfmon_mask(vcpu) ||
+				  pmu->version < 4);
 
 	intercept = !has_mediated_pmu || !kvm_vcpu_has_perf_metrics(vcpu);
 	vmx_set_intercept_for_msr(vcpu, MSR_PERF_METRICS,

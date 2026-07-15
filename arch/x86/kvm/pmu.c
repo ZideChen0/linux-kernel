@@ -1393,7 +1393,7 @@ void kvm_mediated_pmu_load(struct kvm_vcpu *vcpu)
 
 	perf_pmu_partition_preload();
 
-	perf_load_guest_context(false);
+	perf_load_guest_context(kvm_vcpu_has_perfmon_mask(vcpu));
 
 	/*
 	 * Explicitly clear PERF_GLOBAL_CTRL, as "loading" the guest's context
@@ -1466,5 +1466,5 @@ void kvm_mediated_pmu_put(struct kvm_vcpu *vcpu)
 
 	perf_put_guest_lvtpc();
 
-	perf_put_guest_context(false);
+	perf_put_guest_context(kvm_vcpu_has_perfmon_mask(vcpu));
 }

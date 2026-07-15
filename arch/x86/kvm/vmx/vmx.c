@@ -4294,6 +4294,9 @@ static void vmx_recalc_pmu_msr_intercepts(struct kvm_vcpu *vcpu)
 	if (!cpu_has_save_perf_global_ctrl()) {
 		vm_exit_controls_bits &= ~VM_EXIT_SAVE_IA32_PERF_GLOBAL_CTRL;
 
+		/* Module parameter validation should already prevent this. */
+		WARN_ON_ONCE(kvm_vcpu_has_perfmon_mask(vcpu));
+
 		if (has_mediated_pmu)
 			vmx_add_autostore_msr(vmx, MSR_CORE_PERF_GLOBAL_CTRL);
 		else
@@ -8133,7 +8136,8 @@ static __init u64 vmx_get_perf_capabilities(void)
 		perf_cap &= ~PERF_CAP_PEBS_BASELINE;
 	}
 
-	if (enable_mediated_pmu)
+	if (enable_mediated_pmu &&
+	    (!perfmon_mask || (perfmon_mask & GLOBAL_STATUS_PERF_METRICS_OVF)))
 		perf_cap |= kvm_host.perf_capabilities & PERF_CAP_PERF_METRICS;
 
 	return perf_cap;

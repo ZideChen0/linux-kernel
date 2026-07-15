@@ -89,6 +89,12 @@ static inline bool kvm_vcpu_has_mediated_pmu(struct kvm_vcpu *vcpu)
 	return enable_mediated_pmu && vcpu_to_pmu(vcpu)->version;
 }
 
+static inline bool kvm_vcpu_has_perfmon_mask(struct kvm_vcpu *vcpu)
+{
+	return kvm_vcpu_has_mediated_pmu(vcpu) &&
+	       vcpu_to_pmu(vcpu)->perfmon_mask;
+}
+
 static inline unsigned long kvm_gp_pmc_mask(struct kvm_pmu *pmu)
 {
 	return pmu->pmc_exists64 &

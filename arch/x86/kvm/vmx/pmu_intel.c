@@ -703,6 +703,21 @@ static void intel_pmu_refresh(struct kvm_vcpu *vcpu)
 			pmu->pebs_enable_rsvd = ~kvm_gp_pmc_mask(pmu);
 		}
 	}
+
+	if (kvm_vcpu_has_mediated_pmu(vcpu) && perfmon_mask) {
+		pmu->perfmon_mask = ~pmu->global_status_rsvd;
+
+		/*
+		 * The PerfMon mask for a particular guest must be a subset
+		 * of the module-wide mask. This masks out the global bits
+		 * (e.g. GLOBAL_STATUS_COND_CHG) that must be handled by the
+		 * host and were removed from global_status_rsvd without
+		 * checking perfmon_mask, and defends in depth against any
+		 * other bits inadvertently granted to the guest.
+		 */
+		pmu->perfmon_mask &= perfmon_mask;
+		vmcs_write64(PERFMON_MASK, pmu->perfmon_mask);
+	}
 }
 
 static void intel_pmu_init(struct kvm_vcpu *vcpu)
@@ -739,6 +754,7 @@ static void intel_pmu_reset(struct kvm_vcpu *vcpu)
 	struct kvm_pmu *pmu = vcpu_to_pmu(vcpu);
 
 	pmu->perf_metrics = 0;
+	pmu->perfmon_mask = 0;
 	intel_pmu_release_guest_lbr_event(vcpu);
 }
 
@@ -1020,6 +1036,16 @@ void intel_pmu_perfmon_mask_setup(void)
 		pr_warn("Invalid perfmon_mask=%#llx, disabling PerfMon masking\n",
 			perfmon_mask);
 		perfmon_mask = 0;
+	}
+
+	/*
+	 * perfmon_mask represents the maximum resources that any guest may
+	 * have. KVM chooses to expose fewer hardware resources to guests.
+	 */
+	if (perfmon_mask) {
+		kvm_pmu_cap.cntr_mask64 &= perfmon_mask;
+		kvm_pmu_cap.fixed_cntr_mask64 &=
+			(perfmon_mask >> INTEL_PMC_IDX_FIXED);
 	}
 }
 

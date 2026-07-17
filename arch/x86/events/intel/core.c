@@ -4459,6 +4459,9 @@ dyn_constraint(struct cpu_hw_events *cpuc, struct event_constraint *c, int idx)
  * Mask out guest-owned counters from a constraint when PMU partition has been
  * entered, so !exclude_guest host events are not scheduled onto them while
  * the CPU is in non-root mode.
+ *
+ * This is also used by PMU-specific get_event_constraints() wrappers
+ * that hard-code a static, counter-specific constraint.
  */
 static struct event_constraint *
 part_constraint(struct cpu_hw_events *cpuc, int idx,
@@ -5568,7 +5571,7 @@ hsw_get_event_constraints(struct cpu_hw_events *cpuc, int idx,
 	/* Handle special quirk on in_tx_checkpointed only in counter 2 */
 	if (event->hw.config & HSW_IN_TX_CHECKPOINTED) {
 		if (c->idxmsk64 & (1U << 2))
-			return &counter2_constraint;
+			return part_constraint(cpuc, idx, event, &counter2_constraint);
 		return &emptyconstraint;
 	}
 
@@ -5585,7 +5588,7 @@ icl_get_event_constraints(struct cpu_hw_events *cpuc, int idx,
 	 */
 	if ((event->attr.precise_ip == 3) &&
 	    constraint_match(&fixed0_constraint, event->hw.config))
-		return &fixed0_constraint;
+		return part_constraint(cpuc, idx, event, &fixed0_constraint);
 
 	return hsw_get_event_constraints(cpuc, idx, event);
 }
@@ -5607,7 +5610,7 @@ glc_get_event_constraints(struct cpu_hw_events *cpuc, int idx,
 	if ((event->attr.precise_ip == 3) &&
 	    !constraint_match(&fixed0_constraint, event->hw.config)) {
 		if (c->idxmsk64 & BIT_ULL(0))
-			return &counter0_constraint;
+			return part_constraint(cpuc, idx, event, &counter0_constraint);
 
 		return &emptyconstraint;
 	}
@@ -5623,7 +5626,7 @@ glp_get_event_constraints(struct cpu_hw_events *cpuc, int idx,
 
 	/* :ppp means to do reduced skid PEBS which is PMC0 only. */
 	if (event->attr.precise_ip == 3)
-		return &counter0_constraint;
+		return part_constraint(cpuc, idx, event, &counter0_constraint);
 
 	c = intel_get_event_constraints(cpuc, idx, event);
 
@@ -5645,9 +5648,9 @@ tnt_get_event_constraints(struct cpu_hw_events *cpuc, int idx,
 	if (event->attr.precise_ip == 3) {
 		/* Force instruction:ppp on PMC0 and Fixed counter 0 */
 		if (constraint_match(&fixed0_constraint, event->hw.config))
-			return &fixed0_counter0_constraint;
+			return part_constraint(cpuc, idx, event, &fixed0_counter0_constraint);
 
-		return &counter0_constraint;
+		return part_constraint(cpuc, idx, event, &counter0_constraint);
 	}
 
 	return c;
@@ -5705,22 +5708,30 @@ cmt_get_event_constraints(struct cpu_hw_events *cpuc, int idx,
 	if (event->attr.precise_ip == 3) {
 		/* Force instruction:ppp on PMC0, 1 and Fixed counter 0 */
 		if (constraint_match(&fixed0_constraint, event->hw.config)) {
+			c = &fixed0_counter0_1_constraint;
+
 			/* The fixed counter 0 doesn't support LBR event logging. */
 			if (branch_sample_counters(event))
-				return &counter0_1_constraint;
-			else
-				return &fixed0_counter0_1_constraint;
+				c = &counter0_1_constraint;
+
+			return part_constraint(cpuc, idx, event, c);
 		}
 
 		switch (c->idxmsk64 & 0x3ull) {
 		case 0x1:
-			return &counter0_constraint;
+			c = &counter0_constraint;
+			break;
 		case 0x2:
-			return &counter1_constraint;
+			c = &counter1_constraint;
+			break;
 		case 0x3:
-			return &counter0_1_constraint;
+			c = &counter0_1_constraint;
+			break;
+		default:
+			c = &emptyconstraint;
+			break;
 		}
-		return &emptyconstraint;
+		return part_constraint(cpuc, idx, event, c);
 	}
 
 	return c;
@@ -5744,7 +5755,7 @@ rwc_get_event_constraints(struct cpu_hw_events *cpuc, int idx,
 		 */
 		if (event->attr.precise_ip == 3)
 			return &emptyconstraint;
-		return &counters_1_7_constraint;
+		return part_constraint(cpuc, idx, event, &counters_1_7_constraint);
 	}
 
 	return c;

@@ -2814,14 +2814,51 @@ static ssize_t max_precise_show(struct device *cdev,
 
 static DEVICE_ATTR_RO(max_precise);
 
+static ssize_t gp_counters_show(struct device *dev,
+				struct device_attribute *attr, char *buf)
+{
+	struct pmu *pmu = dev_get_drvdata(dev);
+
+	return sysfs_emit(buf, "%*pbl\n", INTEL_PMC_MAX_GENERIC,
+			  hybrid(pmu, cntr_mask));
+}
+
+static ssize_t fixed_counters_show(struct device *dev,
+				   struct device_attribute *attr, char *buf)
+{
+	struct pmu *pmu = dev_get_drvdata(dev);
+
+	return sysfs_emit(buf, "%*pbl\n", INTEL_PMC_MAX_FIXED,
+			  hybrid(pmu, fixed_cntr_mask));
+}
+
+static DEVICE_ATTR_RO(gp_counters);
+static DEVICE_ATTR_RO(fixed_counters);
+
+static umode_t x86_pmu_caps_is_visible(struct kobject *kobj,
+				       struct attribute *attr, int n)
+{
+	struct device *dev = kobj_to_dev(kobj);
+	struct pmu *pmu = dev_get_drvdata(dev);
+
+	if (attr == &dev_attr_fixed_counters.attr &&
+	    !hybrid(pmu, fixed_cntr_mask64))
+		return 0;
+
+	return attr->mode;
+}
+
 static struct attribute *x86_pmu_caps_attrs[] = {
 	&dev_attr_max_precise.attr,
+	&dev_attr_gp_counters.attr,
+	&dev_attr_fixed_counters.attr,
 	NULL
 };
 
 static struct attribute_group x86_pmu_caps_group __ro_after_init = {
 	.name = "caps",
 	.attrs = x86_pmu_caps_attrs,
+	.is_visible = x86_pmu_caps_is_visible,
 };
 
 static const struct attribute_group *x86_pmu_attr_groups[] = {

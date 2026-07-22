@@ -22,3 +22,8 @@ Description:
 		of PERF_SAMPLE_BRANCH_COUNTERS, while the "branch_counter_width"
 		exposes the width of each counter. Both of them can be used by
 		the perf tool to parse the logged counters in each branch.
+
+		The "gp_counters" and "fixed_counters" attributes expose the
+		available general-purpose and fixed-function PMU counters as
+		a range list, e.g. "0-7". The "fixed_counters" attribute is
+		omitted if the PMU does not support fixed-function counters.

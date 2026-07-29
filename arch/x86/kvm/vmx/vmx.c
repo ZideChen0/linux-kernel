@@ -4288,6 +4288,14 @@ static void vmx_recalc_pmu_msr_intercepts(struct kvm_vcpu *vcpu)
 	bool intercept = !has_mediated_pmu;
 	int i;
 
+	/*
+	 * Keep the PerfMon masking tertiary VM-execution control in sync
+	 * regardless of enable_mediated_pmu.
+	 */
+	if (cpu_has_vmx_perfmon_mask())
+		tertiary_exec_controls_changebit(vmx, TERTIARY_EXEC_PERFMON_MASK_ENABLE,
+						 kvm_vcpu_has_perfmon_mask(vcpu));
+
 	if (!enable_mediated_pmu)
 		return;
 
@@ -4765,6 +4773,9 @@ static u64 vmx_tertiary_exec_control(struct vcpu_vmx *vmx)
 	 */
 	if (!enable_ipiv || !kvm_vcpu_apicv_active(&vmx->vcpu))
 		exec_control &= ~TERTIARY_EXEC_IPI_VIRT;
+
+	if (!kvm_vcpu_has_perfmon_mask(&vmx->vcpu))
+		exec_control &= ~TERTIARY_EXEC_PERFMON_MASK_ENABLE;
 
 	return exec_control;
 }
@@ -6754,6 +6765,8 @@ void dump_vmcs(struct kvm_vcpu *vcpu)
 	if (secondary_exec_control & SECONDARY_EXEC_ENABLE_VPID)
 		pr_err("Virtual processor ID = 0x%04x\n",
 		       vmcs_read16(VIRTUAL_PROCESSOR_ID));
+	if (tertiary_exec_control & TERTIARY_EXEC_PERFMON_MASK_ENABLE)
+		pr_err("PERFMON_MASK = 0x%016llx\n", vmcs_read64(PERFMON_MASK));
 	if (secondary_exec_control & SECONDARY_EXEC_EPT_VIOLATION_VE) {
 		struct vmx_ve_information *ve_info = vmx->ve_info;
 		u64 ve_info_pa = vmcs_read64(VE_INFORMATION_ADDRESS);

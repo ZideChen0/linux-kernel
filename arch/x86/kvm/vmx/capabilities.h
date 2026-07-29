@@ -298,7 +298,8 @@ static inline bool cpu_has_vmx_ipiv(void)
 
 static inline bool cpu_has_vmx_perfmon_mask(void)
 {
-	return false;
+	return vmcs_config.cpu_based_3rd_exec_ctrl &
+		TERTIARY_EXEC_PERFMON_MASK_ENABLE;
 }
 
 static inline bool cpu_has_vmx_flexpriority(void)

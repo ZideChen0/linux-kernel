@@ -883,6 +883,15 @@ struct x86_pmu {
 	int		events_mask_len;
 	int		apic;
 	u64		max_period;
+
+	/*
+	 * Bitmask of PMU resources that may be assigned to a guest.
+	 *
+	 * The mask is set when the first mediated vPMU is created and is
+	 * cleared when the last mediated vPMU is torn down.
+	 */
+	u64		partition_mask;
+
 	struct event_constraint *
 			(*get_event_constraints)(struct cpu_hw_events *cpuc,
 						 int idx,

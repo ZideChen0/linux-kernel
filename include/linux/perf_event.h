@@ -306,6 +306,7 @@ struct perf_event_pmu_context;
 #define PERF_PMU_CAP_AUX_PAUSE		0x0200
 #define PERF_PMU_CAP_AUX_PREFER_LARGE	0x0400
 #define PERF_PMU_CAP_MEDIATED_VPMU	0x0800
+#define PERF_PMU_CAP_PMU_PARTITION	0x1000
 
 /**
  * pmu::scope
@@ -1931,10 +1932,11 @@ extern int perf_event_period(struct perf_event *event, u64 value);
 extern u64 perf_event_pause(struct perf_event *event, bool reset);
 
 #ifdef CONFIG_PERF_GUEST_MEDIATED_PMU
-int perf_create_mediated_pmu(void);
+int perf_create_mediated_pmu(u64 pmu_partition_mask);
 void perf_release_mediated_pmu(void);
 void perf_load_guest_context(void);
 void perf_put_guest_context(void);
+int arch_perf_set_pmu_partition_mask(u64 pmu_partition_mask);
 #endif
 
 #else /* !CONFIG_PERF_EVENTS: */

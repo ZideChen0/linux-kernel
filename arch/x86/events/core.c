@@ -2773,6 +2773,64 @@ static bool x86_pmu_filter(struct pmu *pmu, int cpu)
 	return ret;
 }
 
+/**
+ * arch_perf_set_pmu_partition_mask - Validate and set the VM-owned counter
+ *				      mask for mediated vPMU
+ * @partition_mask: Bitmask of PMU counters or other hardware resources
+ *		to hand over to mediated vPMU guests. 0 disables PMU
+ *		partitioning, as in the legacy model.
+ *
+ * Called via perf_create_mediated_pmu() to validate @partition_mask and,
+ * if valid, record it in x86_pmu.partition_mask for use by the
+ * scheduler, and set PERF_PMU_CAP_PMU_PARTITION on the generic PMU so
+ * perf core can check it without reaching into x86-private state.
+ *
+ * Return: 0 on success, -errno otherwise.
+ */
+int arch_perf_set_pmu_partition_mask(u64 partition_mask)
+{
+	u64 current_mask = READ_ONCE(x86_pmu.partition_mask);
+	struct pmu *pmu;
+
+	/* Non-paritioned mediated guests fall into this case. */
+	if (current_mask == partition_mask)
+		return 0;
+
+	/*
+	 * AMD does not yet implement the hardware support for PMU partitioning
+	 * between host and guest. Thus limit it to Intel platforms with the
+	 * PerfMon masking VMX extension. Leave it to KVM to check the VMX
+	 * feature. KVM doesn't support vPMU on Hybrid CPUs at all.
+	 */
+	if (boot_cpu_data.x86_vendor != X86_VENDOR_INTEL || is_hybrid())
+		return -EOPNOTSUPP;
+
+	pmu = x86_get_pmu(raw_smp_processor_id());
+	if (!(pmu->capabilities & PERF_PMU_CAP_MEDIATED_VPMU))
+		return -EOPNOTSUPP;
+
+	/*
+	 * If a mediated-PMU VM was already created, the configured mask
+	 * cannot be changed.
+	 */
+	if (current_mask && partition_mask)
+		return -EINVAL;
+
+	/*
+	 * perf/core guarantees that this path is reached only after all
+	 * partitioned guests have been released.
+	 */
+	if (!partition_mask) {
+		WRITE_ONCE(x86_pmu.partition_mask, 0);
+		pmu->capabilities &= ~PERF_PMU_CAP_PMU_PARTITION;
+		return 0;
+	}
+
+	WRITE_ONCE(x86_pmu.partition_mask, partition_mask);
+	pmu->capabilities |= PERF_PMU_CAP_PMU_PARTITION;
+	return 0;
+}
+
 static struct pmu pmu = {
 	.pmu_enable		= x86_pmu_enable,
 	.pmu_disable		= x86_pmu_disable,

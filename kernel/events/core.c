@@ -6340,6 +6340,11 @@ static atomic_t nr_include_guest_events __read_mostly;
 static atomic_t nr_mediated_pmu_vms __read_mostly;
 static DEFINE_MUTEX(perf_mediated_pmu_mutex);
 
+int __weak arch_perf_set_pmu_partition_mask(u64 partition_mask)
+{
+	return partition_mask ? -EOPNOTSUPP : 0;
+}
+
 /* !exclude_guest event of PMU with PERF_PMU_CAP_MEDIATED_VPMU */
 static inline bool is_include_guest_event(struct perf_event *event)
 {
@@ -6387,14 +6392,17 @@ static void mediated_pmu_unaccount_event(struct perf_event *event)
  * No impact for the PMU without PERF_PMU_CAP_MEDIATED_VPMU. The perf
  * still owns all the PMU resources.
  */
-int perf_create_mediated_pmu(void)
+int perf_create_mediated_pmu(u64 partition_mask)
 {
-	if (atomic_inc_not_zero(&nr_mediated_pmu_vms))
-		return 0;
+	int ret;
 
 	guard(mutex)(&perf_mediated_pmu_mutex);
 	if (atomic_read(&nr_include_guest_events))
 		return -EBUSY;
+
+	ret = arch_perf_set_pmu_partition_mask(partition_mask);
+	if (ret)
+		return ret;
 
 	atomic_inc(&nr_mediated_pmu_vms);
 	return 0;
@@ -6403,10 +6411,13 @@ EXPORT_SYMBOL_FOR_KVM(perf_create_mediated_pmu);
 
 void perf_release_mediated_pmu(void)
 {
+	guard(mutex)(&perf_mediated_pmu_mutex);
+
 	if (WARN_ON_ONCE(!atomic_read(&nr_mediated_pmu_vms)))
 		return;
 
-	atomic_dec(&nr_mediated_pmu_vms);
+	if (atomic_dec_and_test(&nr_mediated_pmu_vms))
+		arch_perf_set_pmu_partition_mask(0);
 }
 EXPORT_SYMBOL_FOR_KVM(perf_release_mediated_pmu);
 

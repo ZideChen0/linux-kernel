@@ -1883,6 +1883,14 @@ void perf_put_guest_lvtpc(void)
 		apic_write(APIC_LVTPC, APIC_DM_NMI);
 }
 EXPORT_SYMBOL_FOR_KVM(perf_put_guest_lvtpc);
+
+void perf_set_current_partition_mask(u64 mask)
+{
+	struct cpu_hw_events *cpuc = this_cpu_ptr(&cpu_hw_events);
+
+	cpuc->partition_mask = mask & READ_ONCE(x86_pmu.partition_mask);
+}
+EXPORT_SYMBOL_FOR_KVM(perf_set_current_partition_mask);
 #endif /* CONFIG_PERF_GUEST_MEDIATED_PMU */
 
 static int

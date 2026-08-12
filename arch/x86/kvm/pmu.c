@@ -46,6 +46,19 @@ EXPORT_SYMBOL_FOR_KVM_INTERNAL(enable_mediated_pmu);
 u64 __read_mostly perfmon_mask;
 EXPORT_SYMBOL_FOR_KVM_INTERNAL(perfmon_mask);
 
+void kvm_pmu_vcpu_load(struct kvm_vcpu *vcpu)
+{
+	struct kvm_pmu *pmu = vcpu_to_pmu(vcpu);
+
+	perf_set_current_partition_mask(kvm_vcpu_has_perfmon_mask(vcpu) ?
+					pmu->perfmon_mask : 0);
+}
+
+void kvm_pmu_vcpu_put(struct kvm_vcpu *vcpu)
+{
+	perf_set_current_partition_mask(0);
+}
+
 struct kvm_x86_pmu_event_filter {
 	__u32 action;
 	__u32 nevents;

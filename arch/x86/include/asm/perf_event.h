@@ -794,6 +794,7 @@ static inline void perf_check_microcode(void) { }
 extern void perf_pmu_partition_preload(void);
 extern void perf_load_guest_lvtpc(u32 guest_lvtpc);
 extern void perf_put_guest_lvtpc(void);
+extern void perf_set_current_partition_mask(u64 mask);
 #endif
 
 #if defined(CONFIG_PERF_EVENTS) && defined(CONFIG_CPU_SUP_INTEL)

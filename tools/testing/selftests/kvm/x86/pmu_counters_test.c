@@ -678,7 +678,8 @@ static void __guest_test_perf_metrics(void)
 
 	if ((guest_get_pmu_version() < 2) ||	/* Does guest have GLOBAL_CTRL? */
 	    !this_cpu_has(X86_FEATURE_PDCM) ||
-	    !(rdmsr(MSR_IA32_PERF_CAPABILITIES) & PERF_CAP_PERF_METRICS))
+	    !(rdmsr(MSR_IA32_PERF_CAPABILITIES) & PERF_CAP_PERF_METRICS) ||
+	    !this_pmu_has(X86_PMU_FEATURE_TOPDOWN_SLOTS_FIXED))
 		return;
 
 	wrmsr(MSR_CORE_PERF_GLOBAL_CTRL, 0);

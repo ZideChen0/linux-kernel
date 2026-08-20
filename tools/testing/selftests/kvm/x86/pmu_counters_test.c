@@ -282,19 +282,16 @@ static void __guest_test_arch_event(u8 idx, u32 pmc, u32 pmc_msr,
 		GUEST_TEST_EVENT(idx, pmc, pmc_msr, ctrl_msr, ctrl_msr_value, KVM_FEP);
 }
 
-static void guest_test_arch_event(u8 idx)
+static void guest_test_arch_gp_event(u8 idx, bool guest_has_perf_global_ctrl)
 {
 	u32 nr_gp_counters = this_cpu_property(X86_PROPERTY_PMU_NR_GP_COUNTERS);
-	u32 pmu_version = guest_get_pmu_version();
-	/* PERF_GLOBAL_CTRL exists only for Architectural PMU Version 2+. */
-	bool guest_has_perf_global_ctrl = pmu_version >= 2;
-	struct kvm_x86_pmu_feature gp_event, fixed_event;
+	struct kvm_x86_pmu_feature gp_event;
 	u32 base_pmc_msr;
 	unsigned int i;
 	u64 eventsel;
 
-	/* The host side shouldn't invoke this without a guest PMU. */
-	GUEST_ASSERT(pmu_version);
+	if (!nr_gp_counters)
+		return;
 
 	if (this_cpu_has(X86_FEATURE_PDCM) &&
 	    rdmsr(MSR_IA32_PERF_CAPABILITIES) & PMU_CAP_FW_WRITES)
@@ -305,7 +302,6 @@ static void guest_test_arch_event(u8 idx)
 	gp_event = intel_event_to_feature(idx).gp_event;
 	GUEST_ASSERT_EQ(idx, gp_event.f.bit);
 
-	GUEST_ASSERT(nr_gp_counters);
 	i = kvm_random_u32_in_range(&kvm_rng, 0, nr_gp_counters - 1);
 
 	eventsel = ARCH_PERFMON_EVENTSEL_OS | ARCH_PERFMON_EVENTSEL_ENABLE |
@@ -316,6 +312,20 @@ static void guest_test_arch_event(u8 idx)
 		wrmsr(MSR_CORE_PERF_GLOBAL_CTRL, BIT_ULL(i));
 
 	__guest_test_arch_event(idx, i, base_pmc_msr + i, MSR_P6_EVNTSEL0 + i, eventsel);
+}
+
+static void guest_test_arch_event(u8 idx)
+{
+	u32 pmu_version = guest_get_pmu_version();
+	/* PERF_GLOBAL_CTRL exists only for Architectural PMU Version 2+. */
+	bool guest_has_perf_global_ctrl = pmu_version >= 2;
+	struct kvm_x86_pmu_feature fixed_event;
+	unsigned int i;
+
+	/* The host side shouldn't invoke this without a guest PMU. */
+	GUEST_ASSERT(pmu_version);
+
+	guest_test_arch_gp_event(idx, guest_has_perf_global_ctrl);
 
 	if (!guest_has_perf_global_ctrl)
 		return;

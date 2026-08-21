@@ -1610,6 +1610,7 @@ static inline int is_pebs_pt(struct perf_event *event)
 
 bool pmu_partition_configured(void);
 bool x86_pmu_partition_nmi_active(void);
+bool x86_pmu_partition_loaded(struct cpu_hw_events *cpuc);
 u64 x86_pmu_current_partition_mask(void);
 
 #ifdef CONFIG_CPU_SUP_INTEL

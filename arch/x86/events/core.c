@@ -1813,6 +1813,17 @@ bool x86_pmu_partition_nmi_active(void)
 	       state == GUEST_PMU_PARTITION_NMI;
 }
 
+/*
+ * Skip for "fake" cpuc used during event validation, where
+ * per-CPU state like guest_pmu_state is meaningless.
+ */
+bool x86_pmu_partition_loaded(struct cpu_hw_events *cpuc)
+{
+	return !cpuc->is_fake &&
+	       pmu_partition_configured() &&
+	       this_cpu_read(guest_pmu_state) != GUEST_PMU_NONE;
+}
+
 u64 x86_pmu_current_partition_mask(void)
 {
 	return this_cpu_ptr(&cpu_hw_events)->partition_mask;

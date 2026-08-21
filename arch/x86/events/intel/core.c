@@ -2812,8 +2812,10 @@ static void __intel_pmu_enable_all(int added, bool pmi)
 		cpuc->active_fixed_ctrl_val = cpuc->fixed_ctrl_val;
 	}
 
-	wrmsrq(MSR_CORE_PERF_GLOBAL_CTRL,
-	       intel_ctrl & ~cpuc->intel_ctrl_guest_mask);
+	if (!x86_pmu_partition_loaded(cpuc))
+	       intel_ctrl &= ~cpuc->intel_ctrl_guest_mask;
+
+	wrmsrq(MSR_CORE_PERF_GLOBAL_CTRL, intel_ctrl);
 
 	if (test_bit(INTEL_PMC_IDX_FIXED_BTS, cpuc->active_mask)) {
 		struct perf_event *event =
